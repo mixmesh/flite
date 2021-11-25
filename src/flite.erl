@@ -69,6 +69,7 @@ aplay_wave({#{
 	     },Samples}) ->
     Command = lists:flatten(
 		["aplay ",
+		 "-q ",
 		 "-r ",integer_to_list(SampleRate),$\s,
 		 "-t raw ",
 		 "-c ",integer_to_list(NumChannels),$\s,
