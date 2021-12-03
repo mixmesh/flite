@@ -14,8 +14,8 @@
 -export([text_to_wave/3]).
 %% util
 -export([list_lib_voices/0]).
--export([aplay/1, aplay/2, aplay/3]).
--export([aplay_wave/1]).
+-export([aplay/1, aplay/2, aplay/3, aplay/4]).
+-export([aplay_wave/1, aplay_wave/2]).
 -type wave_header() ::
 	{WaveType::atom(), SampleRate::number(),
 	 NumChannels::integer(), ChannelMap::integer()}.
@@ -54,33 +54,28 @@ text_to_wave(_Text, _Lang, _Voice) ->
     ?nif_stub().
 
 aplay(Text) ->
-    aplay_wave(text_to_wave(Text)).
+    aplay_wave(text_to_wave(Text), #{}).
+aplay(Text,Params) when is_map(Params) ->
+    aplay_wave(text_to_wave(Text), Params);
 aplay(Text,Voice) ->
-    aplay_wave(text_to_wave(Text,Voice)).
+    aplay_wave(text_to_wave(Text,Voice), #{}).
 aplay(Text, Lang, Voice) ->
-    aplay(text_to_wave(Text, Lang, Voice)).
+    aplay(text_to_wave(Text, Lang, Voice), #{}).
+aplay(Text, Lang, Voice, Params) when is_map(Params) ->
+    aplay(text_to_wave(Text, Lang, Voice), Params).
 
-%% utility using aplay!
-aplay_wave({#{
-	      format := Format,
-	      sample_rate := SampleRate,
-	      num_channels := NumChannels,
-	      num_samples  := NumSamples
-	     },Samples}) ->
-    Command = lists:flatten(
-		["aplay ",
-		 "-q ",
-		 "-r ",integer_to_list(SampleRate),$\s,
-		 "-t raw ",
-		 "-c ",integer_to_list(NumChannels),$\s,
-		 "-s ",integer_to_list(NumSamples),$\s,
-		 "-f ", string:to_upper(atom_to_list(Format)),$\s]),
-    %% io:format("run command: ~s\n", [Command]),
-    Aplay = erlang:open_port({spawn, Command}, [eof]),
-    Aplay ! {self(), {command, Samples}},
-    receive
-	{Aplay, eof} ->
-	    erlang:port_close(Aplay),
-	    ok
+aplay_wave(Wave) ->
+    aplay_wave(Wave, #{}).
+aplay_wave({Params, Samples}, Params0) ->
+    case file:open(Samples, [ram, read, binary]) of
+	{ok,Fd} ->
+	    Params1 = maps:merge(Params, Params0),
+	    try alsa_playback:fd(Fd, Params1) of
+		Result -> Result
+	    after
+		file:close(Fd)
+	    end;
+	{error,Reason} ->
+	    {error, file:format_error(Reason)}
     end.
-
+	   
