@@ -14,8 +14,8 @@
 -export([text_to_wave/3]).
 %% util
 -export([list_lib_voices/0]).
--export([aplay/1, aplay/2, aplay/3, aplay/4]).
--export([aplay_wave/1, aplay_wave/2]).
+-export([say/1, say/2, say/3, say/4]).
+-export([aplay/1, aplay/2]).
 -type wave_header() ::
 	{WaveType::atom(), SampleRate::number(),
 	 Channels::integer(), ChannelMap::integer()}.
@@ -53,20 +53,20 @@ text_to_wave(Text, Voice) ->
 text_to_wave(_Text, _Lang, _Voice) ->
     ?nif_stub().
 
-aplay(Text) ->
-    aplay_wave(text_to_wave(Text), #{}).
-aplay(Text,Params) when is_map(Params) ->
-    aplay_wave(text_to_wave(Text), Params);
-aplay(Text,Voice) ->
-    aplay_wave(text_to_wave(Text,Voice), #{}).
-aplay(Text, Lang, Voice) ->
+say(Text) ->
+    aplay(text_to_wave(Text), #{}).
+say(Text,Params) when is_map(Params) ->
+    aplay(text_to_wave(Text), Params);
+say(Text,Voice) ->
+    aplay(text_to_wave(Text,Voice), #{}).
+say(Text, Lang, Voice) ->
     aplay(text_to_wave(Text, Lang, Voice), #{}).
-aplay(Text, Lang, Voice, Params) when is_map(Params) ->
+say(Text, Lang, Voice, Params) when is_map(Params) ->
     aplay(text_to_wave(Text, Lang, Voice), Params).
 
-aplay_wave(Wave) ->
-    aplay_wave(Wave, #{}).
-aplay_wave({Params, Samples}, Params0) ->
+aplay(Wave) ->
+    aplay(Wave, #{}).
+aplay({Params, Samples}, Params0) ->
     case file:open(Samples, [ram, read, binary]) of
 	{ok,Fd} ->
 	    Params1 = maps:merge(Params, Params0),
