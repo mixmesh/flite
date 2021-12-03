@@ -78,7 +78,7 @@ DECL_ATOM(error);
 DECL_ATOM(format);
 DECL_ATOM(sample_rate);
 DECL_ATOM(num_samples);
-DECL_ATOM(num_channels);
+DECL_ATOM(channels);
 DECL_ATOM(channel_map);
 
 // channel map
@@ -249,7 +249,7 @@ static ERL_NIF_TERM make_wav_header(ErlNifEnv* env, cst_wave* wav)
 	ATOM(format),
 	ATOM(sample_rate),
 	ATOM(num_samples),
-	ATOM(num_channels),
+	ATOM(channels),
 	ATOM(channel_map)
     };
     ERL_NIF_TERM values[] = {
@@ -400,7 +400,7 @@ static void load_atoms(ErlNifEnv* env,flite_ctx_t* ctx)
     LOAD_ATOM(format);
     LOAD_ATOM(sample_rate);
     LOAD_ATOM(num_samples);
-    LOAD_ATOM(num_channels);
+    LOAD_ATOM(channels);
     LOAD_ATOM(channel_map);
 
     LOAD_ATOM(silent);

@@ -18,7 +18,7 @@
 -export([aplay_wave/1, aplay_wave/2]).
 -type wave_header() ::
 	{WaveType::atom(), SampleRate::number(),
-	 NumChannels::integer(), ChannelMap::integer()}.
+	 Channels::integer(), ChannelMap::integer()}.
 
 -define(VOICES_DIR, "/usr/lib/x86_64-linux-gnu").
 
