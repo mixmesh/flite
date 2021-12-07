@@ -16,9 +16,13 @@
 -export([list_lib_voices/0]).
 -export([say/1, say/2, say/3, say/4]).
 -export([aplay/1, aplay/2]).
--type wave_header() ::
-	{WaveType::atom(), SampleRate::number(),
-	 Channels::integer(), ChannelMap::integer()}.
+-type unsigned() :: non_neg_integer().
+-type wave_header_entry() ::
+	{format, alsa:format()} |
+	{rate, unsigned()} |
+	{channels, unsigned()}.
+
+-type wave_header() :: [wave_header_entry()].
 
 -define(VOICES_DIR, "/usr/lib/x86_64-linux-gnu").
 
@@ -54,22 +58,23 @@ text_to_wave(_Text, _Lang, _Voice) ->
     ?nif_stub().
 
 say(Text) ->
-    aplay(text_to_wave(Text), #{}).
-say(Text,Params) when is_map(Params) ->
-    aplay(text_to_wave(Text), Params);
-say(Text,Voice) ->
-    aplay(text_to_wave(Text,Voice), #{}).
+    aplay(text_to_wave(Text), []).
+
+say(Text,Params) when is_list(Params) ->
+    aplay(text_to_wave(Text), Params).
+
 say(Text, Lang, Voice) ->
-    aplay(text_to_wave(Text, Lang, Voice), #{}).
-say(Text, Lang, Voice, Params) when is_map(Params) ->
+    aplay(text_to_wave(Text, Lang, Voice), []).
+
+say(Text, Lang, Voice, Params) when is_list(Params) ->
     aplay(text_to_wave(Text, Lang, Voice), Params).
 
 aplay(Wave) ->
-    aplay(Wave, #{}).
-aplay({Params, Samples}, Params0) ->
+    aplay(Wave, []).
+aplay({Params, Samples}, Params0) when is_list(Params0) ->
     case file:open(Samples, [ram, read, binary]) of
 	{ok,Fd} ->
-	    Params1 = maps:merge(Params, Params0),
+	    Params1 = Params ++ Params0,
 	    try alsa_playback:fd(Fd, Params1) of
 		Result -> Result
 	    after

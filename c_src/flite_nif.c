@@ -76,8 +76,8 @@ DECL_ATOM(error);
 
 // wave header fields
 DECL_ATOM(format);
-DECL_ATOM(sample_rate);
-DECL_ATOM(num_samples);
+DECL_ATOM(rate);
+DECL_ATOM(size);
 DECL_ATOM(channels);
 DECL_ATOM(channel_map);
 
@@ -242,33 +242,17 @@ static void set_debug(int level)
 }
 
 
-static ERL_NIF_TERM make_wav_header(ErlNifEnv* env, cst_wave* wav)
+static ERL_NIF_TERM make_wave_header(ErlNifEnv* env, cst_wave* wav)
 {
-    ERL_NIF_TERM header;
-    ERL_NIF_TERM keys[] = {
-	ATOM(format),
-	ATOM(sample_rate),
-	ATOM(num_samples),
-	ATOM(channels),
-	ATOM(channel_map)
-    };
-    ERL_NIF_TERM values[] = {
-	ATOM(s16_le),
-	enif_make_int(env, wav->sample_rate),
-	enif_make_int(env, wav->num_samples),
-	enif_make_int(env, wav->num_channels),
-	ATOM(undefined)
-    };
-    if (wav->num_channels == 1)
-	values[4] = enif_make_tuple1(env, ATOM(mono));
-    else if (wav->num_channels == 2)
-	values[4] = enif_make_tuple2(env, ATOM(left), ATOM(right));
-
-    if (!enif_make_map_from_arrays(env, keys, values,
-				   sizeof(keys)/sizeof(keys[0]),
-				   &header))
-	return enif_make_badarg(env);
-    return header;
+    return 
+	enif_make_list3(
+	    env,
+	    enif_make_tuple2(env, ATOM(format),
+			     ATOM(s16_le)),
+	    enif_make_tuple2(env, ATOM(rate),
+			     enif_make_int(env, wav->sample_rate)),
+	    enif_make_tuple2(env, ATOM(channels),
+			     enif_make_int(env,wav->num_channels)));
 }
 
 
@@ -343,7 +327,7 @@ static ERL_NIF_TERM nif_text_to_wave(ErlNifEnv* env, int argc,
     data = enif_make_binary(env, &samples);
     enif_release_binary(&samples);
 
-    header = make_wav_header(env, wav);
+    header = make_wave_header(env, wav);
     delete_wave(wav);
     return enif_make_tuple2(env, header, data);
 }
@@ -398,8 +382,8 @@ static void load_atoms(ErlNifEnv* env,flite_ctx_t* ctx)
     LOAD_ATOM(error);
 
     LOAD_ATOM(format);
-    LOAD_ATOM(sample_rate);
-    LOAD_ATOM(num_samples);
+    LOAD_ATOM(rate);
+    LOAD_ATOM(size);
     LOAD_ATOM(channels);
     LOAD_ATOM(channel_map);
 
