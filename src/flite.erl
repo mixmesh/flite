@@ -24,8 +24,6 @@
 
 -type wave_header() :: [wave_header_entry()].
 
--define(VOICES_DIR, "/usr/lib/x86_64-linux-gnu").
-
 -define(nif_stub(),
 	erlang:nif_error({nif_not_loaded,module,?MODULE,line,?LINE})).
 
@@ -34,12 +32,16 @@ init() ->
     Voices = list_lib_voices(),
     erlang:load_nif(Nif, Voices).
 
+voices_dir()->
+    Arch = string:trim(os:cmd("gcc -dumpmachine")),
+    filename:join("/usr/lib/", Arch).
+
 -spec list_voices() -> [{Lang::string(),Name::string()}].
 list_voices() ->
     ?nif_stub().
 
 list_lib_voices() ->
-    filelib:wildcard(filename:join(?VOICES_DIR,"libflite_cmu_*.so")).
+    filelib:wildcard(filename:join(voices_dir(),"libflite_cmu_*.so")).
 
 
 -spec text_to_wave(Text::string()) ->
