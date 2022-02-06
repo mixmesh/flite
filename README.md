@@ -10,7 +10,7 @@ Require flite-dev to be installed.
 
 ## usage
 
-    flite:list\_voices().
+    flite:list_voices().
 	> [{"time","awb"},{"us","awb"},{"us","kal"},{"us","kal16"},
 	   {"us","rms"},{"us","slt"}]
 	
@@ -32,4 +32,4 @@ Require flite-dev to be installed.
   
     flite:text_to_wave(Text::iolist() [Lang::string()] [Voice::string()]
 
-    flite:aplay("Hello").
+    flite:say("Hello").
