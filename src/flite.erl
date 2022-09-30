@@ -16,6 +16,8 @@
 -export([list_lib_voices/0]).
 -export([say/1, say/2, say/3, say/4]).
 -export([aplay/1, aplay/2]).
+-export([pitch/2]).
+
 -type unsigned() :: non_neg_integer().
 -type wave_header_entry() ::
 	{format, alsa:format()} |
@@ -70,6 +72,14 @@ say(Text, Lang, Voice) ->
 
 say(Text, Lang, Voice, Params) when is_list(Params) ->
     aplay(text_to_wave(Text, Lang, Voice), Params).
+
+pitch(DstRate, {Header, Src}) ->
+    SrcRate = proplists:get_value(rate, Header, 16000),
+    Format = proplists:get_value(format, Header, s16_le),
+    Channels = proplists:get_value(channels, Header, 1),
+    Dst = alsa_samples:resample(SrcRate, DstRate, Format, Channels, Src),
+    %% do NOT change rate...
+    {Header, Dst}.
 
 aplay(Wave) ->
     aplay(Wave, []).
