@@ -13,8 +13,9 @@
 
 #define MAX_PATH    1024
 
+// #define DLOG_DEFAULT DLOG_DEBUG
 // #define DEBUG
-// #define NIF_TRACE
+//#define NIF_TRACE
 
 #define DLOG_DEBUG     7
 #define DLOG_INFO      6
@@ -202,15 +203,17 @@ ErlNifFunc nif_funcs[] =
 typedef struct _voice_t
 {
     struct _voice_t* next;
-    char* lang;
-    char* voice;
+    char* lang;   // enif_strdup
+    char* voice;  // enif_strdup
+    char* path;   // enif_strdup
+    void* handle; // dlopen
     cst_voice *v;
 } voice_t;
 
 typedef struct {
-    int ref_count;
-    int debug;             // current debug level
-    voice_t* first_voice;
+    int reload;
+    int debug;         // current debug level
+    voice_t* vlist;    // list of vocies
 } flite_ctx_t;
 
 static void load_atoms(ErlNifEnv* env,flite_ctx_t* ctx);
@@ -255,25 +258,25 @@ static ERL_NIF_TERM make_wave_header(ErlNifEnv* env, cst_wave* wav)
 			     enif_make_int(env,wav->num_channels)));
 }
 
-
 // return list of [{Lang::string(),Voice::string()}]
 static ERL_NIF_TERM nif_list_voices(ErlNifEnv* env, int argc,
 				    const ERL_NIF_TERM argv[])
 {
     (void) argc;
     flite_ctx_t* ctx = (flite_ctx_t*) enif_priv_data(env);
-    voice_t* vp = ctx->first_voice;
+    voice_t* vptr = ctx->vlist;
     ERL_NIF_TERM list = enif_make_list(env, 0);
 
-    while(vp) {
-	ERL_NIF_TERM v, l;
+    while(vptr) {
+	ERL_NIF_TERM voice, lang, path;
 	ERL_NIF_TERM elem;
 
-	l = enif_make_string(env,vp->lang,ERL_NIF_LATIN1);
-	v = enif_make_string(env,vp->voice,ERL_NIF_LATIN1);
-	elem = enif_make_tuple2(env, l, v);
+	lang  = enif_make_string(env,vptr->lang,ERL_NIF_LATIN1);
+	voice = enif_make_string(env,vptr->voice,ERL_NIF_LATIN1);
+	path  = enif_make_string(env,vptr->path,ERL_NIF_LATIN1);
+	elem = enif_make_tuple3(env, lang, voice, path);
 	list = enif_make_list_cell(env, elem, list);
-	vp = vp->next;	    
+	vptr = vptr->next;
     }
     return list;
 }
@@ -283,7 +286,7 @@ static ERL_NIF_TERM nif_text_to_wave(ErlNifEnv* env, int argc,
 {
     (void) argc;
     flite_ctx_t* ctx = (flite_ctx_t*) enif_priv_data(env);
-    voice_t* vp = ctx->first_voice;
+    voice_t* vptr = ctx->vlist;
     ErlNifBinary text;
     ErlNifBinary samples;
     cst_voice *v;
@@ -308,15 +311,15 @@ static ERL_NIF_TERM nif_text_to_wave(ErlNifEnv* env, int argc,
 			     ERL_NIF_LATIN1)) <= 0)
 	return enif_make_badarg(env);
 
-    while(vp) {
-	if (((lang[0] == '\0') || (strcmp(lang, vp->lang) == 0)) ||
-	    ((voice[0] == '\0') || (strcmp(voice, vp->voice) == 0))) {
-	    v = vp->v;
+    while(vptr) {
+	if (((lang[0] == '\0') || (strcmp(lang, vptr->lang) == 0)) &&
+	    ((voice[0] == '\0') || (strcmp(voice, vptr->voice) == 0))) {
+	    v = vptr->v;
 	    break;
 	}
-	vp = vp->next;
+	vptr = vptr->next;
     }
-    if (vp == NULL) // not found
+    if (vptr == NULL) // not found
 	return ATOM(false);
 
     wav = flite_text_to_wave((const char*) text.data, v);
@@ -449,7 +452,17 @@ static void dl_error(void* arg,const char* what)
     ERRORF("flite dl error: %s", what);
 }
 
-static cst_voice *load_voice(const char* lib, char** lang_ptr, char** voice_ptr)
+static char* enif_strdup(char* str)
+{
+    size_t len = strlen(str);
+    char* ptr = enif_alloc(len+1);
+    memcpy(ptr, str, len);
+    ptr[len] = '\0';
+    return ptr;
+}
+
+static cst_voice *load_voice(const char* lib, char** lang_ptr,
+			     char** voice_ptr, void** handle_ptr)
 {
     cst_voice *v;
     void* handle;
@@ -482,6 +495,7 @@ static cst_voice *load_voice(const char* lib, char** lang_ptr, char** voice_ptr)
 
     snprintf(symname, sizeof(symname), "register_cmu_%s_%s", lang, voice);
 
+    // fixme: use dlopen directly, since enif is not supported!
     if ((handle = enif_dlopen(lib, dl_error, NULL)) == NULL) {
 	ERRORF("unable to dlopen [%s]", lib);
 	return NULL;
@@ -494,27 +508,33 @@ static cst_voice *load_voice(const char* lib, char** lang_ptr, char** voice_ptr)
 	ERRORF("unable to register lib [%s]", lib);
 	return NULL;
     }
-    *lang_ptr = strdup(lang);
-    *voice_ptr = strdup(voice);
+    *lang_ptr = enif_strdup(lang);
+    *voice_ptr = enif_strdup(voice);
+    *handle_ptr = handle;
     return v;
 }
-    
 
-static int nif_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+static void clear_voice_list(voice_t* vptr)
 {
-    flite_ctx_t* ctx;
-    (void) env;
-    ERL_NIF_TERM list;
-    
-    set_debug(DLOG_DEFAULT);
+    while(vptr) {
+	voice_t* next = vptr->next;
+	DEBUGF("unload voice %s", vptr->path);
+	enif_free(vptr->lang);
+	enif_free(vptr->voice);
+	enif_free(vptr->path);
+	// delete_voice(vptr->v);   global???
+	enif_free(vptr);
+	vptr = next;
+    }
+}
 
-    if ((ctx = (flite_ctx_t*) enif_alloc(sizeof(flite_ctx_t))) == NULL)
-	return -1;
-    ctx->ref_count = 1;
-    ctx->debug = DLOG_DEFAULT;
-    ctx->first_voice = NULL;
+// load voices via load_info
+static voice_t* load_voice_list(ErlNifEnv* env, ERL_NIF_TERM load_info)
+{
+    ERL_NIF_TERM list;
+    voice_t* vlist = NULL;
+    voice_t* vlast = NULL;
     
-    load_atoms(env, ctx);
     // scan list of libraries to load
     list = load_info;
     while(enif_is_list(env, list) && !enif_is_empty_list(env, list)) {
@@ -525,27 +545,59 @@ static int nif_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 	char* voice;
 	cst_voice *v;
 	char* ptr;
+	void* handle;
 	int r;
 
 	enif_get_list_cell(env, list, &head, &tail);
 	if (!(r = enif_get_string(env, head, libpath, sizeof(libpath),
 				  ERL_NIF_LATIN1)) || (r < 0))
-	    return -1;
+	    return NULL;
 	// remove .so
 	if ((ptr = strrchr(libpath, '.')) != NULL) {
 	    if (strcmp(ptr, ".so") == 0) 
 		*ptr = '\0';
 	}
-	if ((v = load_voice(libpath, &lang, &voice)) != NULL) {
-	    voice_t* vp = malloc(sizeof(voice_t));
-	    vp->next = ctx->first_voice;
-	    vp->lang = lang;    // dynamic
-	    vp->voice = voice;  // dynamic
+	if ((v = load_voice(libpath, &lang, &voice, &handle)) != NULL) {
+	    voice_t* vp;
+	    if ((vp = enif_alloc(sizeof(voice_t))) == NULL)
+		return NULL;
+	    vp->next = NULL;
+	    vp->lang = lang;
+	    vp->voice = voice;
+	    vp->path = enif_strdup(libpath);
+	    vp->handle = handle;
 	    vp->v = v;
-	    ctx->first_voice = vp;
+	    // insert last
+	    if (vlast == NULL)
+		vlist = vp;
+	    else
+		vlast->next = vp;
+	    vlast = vp;
 	}
 	list = tail;
     }
+    return vlist;
+}
+
+static int nif_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+{
+    flite_ctx_t* ctx;
+    (void) env;
+    
+    set_debug(DLOG_DEFAULT);
+    DEBUGF("nif_load");
+    
+    if ((ctx = (flite_ctx_t*) enif_alloc(sizeof(flite_ctx_t))) == NULL)
+	return -1;
+    ctx->reload = 0;
+    ctx->debug = DLOG_DEFAULT;
+    ctx->vlist = NULL;
+    
+    load_atoms(env, ctx);
+
+    if ((ctx->vlist = load_voice_list(env, load_info)) == NULL)
+	return -1;
+
     *priv_data = ctx;
     return 0;
 }
@@ -555,11 +607,21 @@ static int nif_upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
 {
     (void) env;
     (void) load_info;
-    flite_ctx_t* ctx = (flite_ctx_t*) *old_priv_data;
+    flite_ctx_t* old_ctx = (flite_ctx_t*) *old_priv_data;
+    flite_ctx_t* ctx;
+
+    if ((ctx = (flite_ctx_t*) enif_alloc(sizeof(flite_ctx_t))) == NULL)
+	return -1;    
+    ctx->reload = old_ctx->reload + 1;
+    ctx->debug = DLOG_DEFAULT;
+    ctx->vlist = NULL;
     
-    ctx->ref_count++;
+    DEBUGF("nif_upgrade %d", ctx->reload);
+
     load_atoms(env, ctx);
-    *priv_data = *old_priv_data;
+    if ((ctx->vlist = load_voice_list(env, load_info)) == NULL)
+	return -1;
+    *priv_data = ctx;
     return 0;
 }
 
@@ -567,22 +629,11 @@ static void nif_unload(ErlNifEnv* env, void* priv_data)
 {
     (void) env;
     flite_ctx_t* ctx = (flite_ctx_t*) priv_data;
-    voice_t* vp = ctx->first_voice;
 
-    while(vp) {
-	voice_t* vpn;
-	free(vp->lang);
-	free(vp->voice);
-	delete_voice(vp->v);
-	vpn = vp->next;
-	free(vp);
-	vp = vpn;
-    }
-    DEBUGF("nif_unload");
+    DEBUGF("nif_unload");    
+
+    clear_voice_list(ctx->vlist);
     enif_free(ctx);
 }
 
-
-ERL_NIF_INIT(flite, nif_funcs,
-	     nif_load, NULL,
-	     nif_upgrade, nif_unload)
+ERL_NIF_INIT(flite, nif_funcs, nif_load, NULL, nif_upgrade, nif_unload)
